@@ -1,4 +1,4 @@
-# Mirabox KR/Global Stock & Macro Local Realtime Relay Server (v1.3.0, Port 18765)
+﻿# Mirabox KR/Global Stock & Macro Local Realtime Relay Server (v1.3.0, Port 18765)
 # Zero-dependency Windows PowerShell HTTP relay for Naver Finance & Yahoo Realtime APIs
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -186,8 +186,8 @@ while ($listener.IsListening) {
             $ts = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 
             try {
-                # 1) 국내 지수
-                if ($upper -eq "KOSPI" -or $upper -eq "KOSDAQ" -or $upper -eq "KPI200") {
+                # 1) 국내 지수 / 국내 선물
+                if ($upper -in @("KOSPI", "KOSDAQ", "KPI200", "KQI150", "FUT")) {
                     $urls = @(
                         "https://m.stock.naver.com/api/index/$upper/basic?_t=$ts",
                         "https://polling.finance.naver.com/api/realtime/domestic/index/$upper?_t=$ts"

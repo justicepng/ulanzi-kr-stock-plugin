@@ -32,6 +32,8 @@ const DOMESTIC_INDICES = {
   KOSPI: { name: "코스피", market: "INDEX" },
   KOSDAQ: { name: "코스닥", market: "INDEX" },
   KPI200: { name: "코스피200", market: "INDEX" },
+  KQI150: { name: "코스닥150", market: "INDEX" },
+  FUT: { name: "코스피200 선물", market: "FUTURES" },
 };
 
 const GLOBAL_SYMBOLS = {
@@ -289,7 +291,7 @@ function normalizeNaver(raw, code, isDomIdx) {
     fluctuationsRatio: String(item.fluctuationsRatio || "0"),
     compareToPreviousPrice: item.compareToPreviousPrice || { code: "3" },
     stockExchangeName: isDomIdx
-      ? "INDEX"
+      ? idxMeta?.market || "INDEX"
       : item.stockExchangeName || item.stockExchangeType?.name || "KRX",
     marketStatus: item.marketStatus || "CLOSE",
     newPcUrl: isDomIdx
@@ -340,10 +342,10 @@ async function fetchDirectQuote(code) {
 
   if (isDomesticIndex(upper)) {
     const raw = await fetchJson(
-      `https://polling.finance.naver.com/api/realtime/domestic/index/${encodeURIComponent(upper)}?_t=${Date.now()}`
+      `https://m.stock.naver.com/api/index/${encodeURIComponent(upper)}/basic?_t=${Date.now()}`
     );
     const data = normalizeNaver(raw, cleanCode, true);
-    if (!data) throw new Error("지수 응답 형식 오류");
+    if (!data) throw new Error("지수/선물 응답 형식 오류");
     return data;
   }
 

@@ -17,6 +17,8 @@ const QUICK_PRESETS = [
   { code: "KOSPI",     name: "코스피",          market: "INDEX",   keywords: ["코스피", "kospi", "지수"] },
   { code: "KOSDAQ",    name: "코스닥",          market: "INDEX",   keywords: ["코스닥", "kosdaq", "지수"] },
   { code: "KPI200",    name: "코스피200",       market: "INDEX",   keywords: ["코스피200", "kospi200", "kpi200", "지수"] },
+  { code: "KQI150",    name: "코스닥150",       market: "INDEX",   keywords: ["코스닥150", "kqi150", "코스닥선물", "지수"] },
+  { code: "FUT",       name: "코스피200 선물",  market: "FUTURES", keywords: ["코스피선물", "코스피200선물", "선물", "fut", "kp200"] },
   { code: "NQcv1",     name: "나스닥100 선물",  market: "FUTURES", keywords: ["나스닥", "나스닥100", "나스닥선물", "선물", "nq", "nqcv1", "nq=f", "nasdaq"] },
   { code: "EScv1",     name: "S&P500 선물",     market: "FUTURES", keywords: ["s&p", "s&p500", "에스앤피", "선물", "es", "escv1", "es=f"] },
   { code: "YMcv1",     name: "다우 선물",       market: "FUTURES", keywords: ["다우", "다우선물", "선물", "ym", "ymcv1", "ym=f", "dow"] },
