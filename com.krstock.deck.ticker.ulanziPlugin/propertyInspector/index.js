@@ -2,11 +2,14 @@
  * Property Inspector for Ulanzi Studio - KR/Global Stock & Macro (v1.3.0)
  */
 
+const LOCAL_RELAY_BASE = "http://127.0.0.1:18765";
+
 const DEFAULT_SETTINGS = {
   stockCode: "005930",
   stockName: "삼성전자",
   refreshInterval: 10,
   urlMode: "naverPay",
+  dataSource: "direct",
   showExchange: true,
 };
 
@@ -55,6 +58,7 @@ const els = {
   searchResults: document.getElementById("searchResults"),
   stockCode: document.getElementById("stockCode"),
   applyCodeBtn: document.getElementById("applyCodeBtn"),
+  dataSource: document.getElementById("dataSource"),
   refreshInterval: document.getElementById("refreshInterval"),
   urlMode: document.getElementById("urlMode"),
   showExchange: document.getElementById("showExchange"),
@@ -87,6 +91,7 @@ function saveSettings(partial) {
 
 function syncUi() {
   els.stockCode.value = $settings.stockCode || "005930";
+  els.dataSource.value = $settings.dataSource || "direct";
   els.refreshInterval.value = String($settings.refreshInterval ?? 10);
   els.urlMode.value = $settings.urlMode || "naverPay";
   els.showExchange.checked = $settings.showExchange !== false;
@@ -108,21 +113,32 @@ async function performSearch() {
   );
 
   let naverHits = [];
+  const mode = $settings.dataSource || "direct";
   try {
-    const res = await fetch(
-      `https://ac.stock.naver.com/ac?q=${encodeURIComponent(query)}&target=stock`,
-      { cache: "no-store" }
-    );
-    if (res.ok) {
-      const data = await res.json();
-      naverHits = (Array.isArray(data?.items) ? data.items : [])
-        .filter((it) => it.nationCode === "KOR" && it.code)
-        .map((it) => ({
-          code: it.code,
-          name: it.name,
-          market: it.typeCode || it.typeName || "KRX",
-        }));
+    let data = null;
+    if (mode === "relay") {
+      const res = await fetch(`${LOCAL_RELAY_BASE}/search?q=${encodeURIComponent(query)}`, { cache: "no-store" });
+      if (res.ok) data = await res.json();
+    } else if (mode === "auto") {
+      try {
+        const res = await fetch(`${LOCAL_RELAY_BASE}/search?q=${encodeURIComponent(query)}`, { cache: "no-store" });
+        if (res.ok) data = await res.json();
+      } catch {
+        const res = await fetch(`https://ac.stock.naver.com/ac?q=${encodeURIComponent(query)}&target=stock`, { cache: "no-store" });
+        if (res.ok) data = await res.json();
+      }
+    } else {
+      const res = await fetch(`https://ac.stock.naver.com/ac?q=${encodeURIComponent(query)}&target=stock`, { cache: "no-store" });
+      if (res.ok) data = await res.json();
     }
+    const rawItems = data?.result?.items || data?.items || [];
+    naverHits = (Array.isArray(rawItems) ? rawItems : [])
+      .filter((it) => it.nationCode === "KOR" && it.code)
+      .map((it) => ({
+        code: it.code,
+        name: it.name,
+        market: it.typeCode || it.typeName || "KRX",
+      }));
   } catch {
     // ignore network error and still show presets
   }
@@ -189,6 +205,12 @@ els.applyCodeBtn.addEventListener("click", () => {
 
 els.stockCode.addEventListener("keydown", (e) => {
   if (e.key === "Enter") els.applyCodeBtn.click();
+});
+
+els.dataSource.addEventListener("change", () => {
+  saveSettings({ dataSource: els.dataSource.value });
+  const label = els.dataSource.options[els.dataSource.selectedIndex]?.text || els.dataSource.value;
+  setStatus(`데이터 소스 변경: ${label}`, "ok");
 });
 
 els.refreshInterval.addEventListener("change", () => {

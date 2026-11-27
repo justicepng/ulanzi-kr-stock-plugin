@@ -103,6 +103,17 @@
     </div>
 
     <div class="sdpi-item">
+      <div class="sdpi-item-label">데이터 소스</div>
+      <div class="sdpi-item-value">
+        <select id="dataSource">
+          <option value="direct">직접 API (기본 · 릴레이 불필요)</option>
+          <option value="auto">자동 (로컬 릴레이 우선 → 직접 API)</option>
+          <option value="relay">파워쉘 릴레이 (127.0.0.1:18765)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="sdpi-item">
       <div class="sdpi-item-label">새로고침</div>
       <div class="sdpi-item-value">
         <select id="refreshInterval">

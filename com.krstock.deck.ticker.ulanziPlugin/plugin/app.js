@@ -8,13 +8,16 @@
 import net from "net";
 import crypto from "crypto";
 import https from "https";
+import http from "http";
 
 const PLUGIN_UUID = "com.krstock.deck.ticker";
+const LOCAL_RELAY_BASE = "http://127.0.0.1:18765";
 const DEFAULT_SETTINGS = {
   stockCode: "005930",
   stockName: "삼성전자",
   refreshInterval: 10,
   urlMode: "naverPay",
+  dataSource: "direct", // "direct" | "auto" | "relay"
   showExchange: true,
 };
 
@@ -217,8 +220,9 @@ class SimpleWebSocket {
 // --- HTTPS Helper ---
 
 function fetchJson(url, timeoutMs = 5000) {
+  const client = String(url).startsWith("http://") ? http : https;
   return new Promise((resolve, reject) => {
-    const req = https.get(
+    const req = client.get(
       url,
       {
         headers: {
@@ -323,7 +327,7 @@ function normalizeYahoo(raw, code, gMeta) {
   };
 }
 
-async function fetchRealtimeQuote(code) {
+async function fetchDirectQuote(code) {
   const cleanCode = (code || "005930").trim();
   const upper = cleanCode.toUpperCase();
 
@@ -353,6 +357,34 @@ async function fetchRealtimeQuote(code) {
   const data = normalizeNaver(raw, cleanCode, false);
   if (!data) throw new Error("국내 주식 응답 오류");
   return data;
+}
+
+async function fetchRelayQuote(code, timeoutMs = 2000) {
+  const cleanCode = (code || "005930").trim();
+  const upper = cleanCode.toUpperCase();
+  const gMeta = getGlobalMeta(upper);
+  const isDomIdx = isDomesticIndex(upper);
+  const raw = await fetchJson(
+    `${LOCAL_RELAY_BASE}/quote?code=${encodeURIComponent(cleanCode)}&_t=${Date.now()}`,
+    timeoutMs
+  );
+  const data = normalizeYahoo(raw, cleanCode, gMeta) || normalizeNaver(raw, cleanCode, isDomIdx);
+  if (!data) throw new Error("로컬 릴레이 응답 오류");
+  return data;
+}
+
+async function fetchRealtimeQuote(code, dataSource = "direct") {
+  if (dataSource === "relay") {
+    return await fetchRelayQuote(code, 5000);
+  }
+  if (dataSource === "auto") {
+    try {
+      return await fetchRelayQuote(code, 2000);
+    } catch {
+      return await fetchDirectQuote(code);
+    }
+  }
+  return await fetchDirectQuote(code);
 }
 
 function buildTargetUrl(code, urlMode, apiNewPcUrl) {
@@ -523,7 +555,7 @@ async function updateContext(context) {
   state.inFlight = true;
   const code = state.settings.stockCode || DEFAULT_SETTINGS.stockCode;
   try {
-    const data = await fetchRealtimeQuote(code);
+    const data = await fetchRealtimeQuote(code, state.settings.dataSource || "direct");
     if (!contexts.has(context)) return;
     state.lastData = data;
     if (data.stockName && state.settings.stockName !== data.stockName) {
