@@ -1,0 +1,11 @@
+{
+  "Name": "KR/Global Stock & Macro",
+  "Description": "Displays realtime Korean & Global stock, index, futures, and macro quotes on Ulanzi Studio and opens Naver Pay Securities on press.",
+  "Category": "KR Stock",
+  "Actions": [
+    {
+      "Name": "KR/Global Stock & Macro",
+      "Tooltip": "Display realtime Korean & Global stock/index/futures/macro quotes and open Naver Pay Securities on press"
+    }
+  ]
+}

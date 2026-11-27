@@ -1,0 +1,8 @@
+{
+  "name": "kr-stock-ulanzi-plugin",
+  "version": "1.3.0",
+  "description": "KR/Global Stock & Macro plugin for Ulanzi Studio",
+  "main": "plugin/app.js",
+  "type": "module",
+  "license": "MIT"
+}
