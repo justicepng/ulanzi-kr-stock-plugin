@@ -9,9 +9,16 @@ import net from "net";
 import crypto from "crypto";
 import https from "https";
 import http from "http";
+import path from "path";
+import { fileURLToPath } from "url";
+import { spawn } from "child_process";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PLUGIN_UUID = "com.krstock.deck.ticker";
 const LOCAL_RELAY_BASE = "http://127.0.0.1:18765";
+let relayStartAttempted = false;
+let cachedEtfList = null;
+let cachedEtfTime = 0;
 const DEFAULT_SETTINGS = {
   stockCode: "005930",
   stockName: "삼성전자",
@@ -359,6 +366,22 @@ async function fetchDirectQuote(code) {
   return data;
 }
 
+function tryStartLocalRelay() {
+  if (relayStartAttempted) return;
+  relayStartAttempted = true;
+  try {
+    const relayScript = path.resolve(__dirname, "..", "relay", "local-relay.ps1");
+    const child = spawn(
+      "powershell.exe",
+      ["-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", relayScript],
+      { detached: true, stdio: "ignore", windowsHide: true }
+    );
+    child.unref();
+  } catch {
+    // ignore
+  }
+}
+
 async function fetchRelayQuote(code, timeoutMs = 2000) {
   const cleanCode = (code || "005930").trim();
   const upper = cleanCode.toUpperCase();
@@ -375,16 +398,93 @@ async function fetchRelayQuote(code, timeoutMs = 2000) {
 
 async function fetchRealtimeQuote(code, dataSource = "direct") {
   if (dataSource === "relay") {
-    return await fetchRelayQuote(code, 5000);
+    try {
+      return await fetchRelayQuote(code, 3000);
+    } catch {
+      tryStartLocalRelay();
+      await new Promise((r) => setTimeout(r, 1200));
+      try {
+        return await fetchRelayQuote(code, 3000);
+      } catch {
+        // Fallback to direct HTTPS so button never stays broken
+        return await fetchDirectQuote(code);
+      }
+    }
   }
   if (dataSource === "auto") {
     try {
-      return await fetchRelayQuote(code, 2000);
+      return await fetchRelayQuote(code, 1800);
     } catch {
       return await fetchDirectQuote(code);
     }
   }
   return await fetchDirectQuote(code);
+}
+
+async function getEtfListNode() {
+  if (Array.isArray(cachedEtfList) && Date.now() - cachedEtfTime < 3600 * 1000) {
+    return cachedEtfList;
+  }
+  const data = await fetchJson("https://finance.naver.com/api/sise/etfItemList.nhn");
+  const raw = data?.result?.etfItemList || [];
+  cachedEtfList = raw
+    .filter((it) => it && it.itemcode && it.itemname)
+    .map((it) => ({
+      code: String(it.itemcode).trim(),
+      name: String(it.itemname).trim(),
+      marketCap: Number(it.marketSum || 0),
+    }));
+  cachedEtfTime = Date.now();
+  return cachedEtfList;
+}
+
+async function searchStocksNode(query) {
+  const q = String(query || "").trim();
+  const qLower = q.toLowerCase();
+  const qNoSpace = qLower.replace(/\s+/g, "");
+  const [acRes, etfRes] = await Promise.allSettled([
+    fetchJson(`https://ac.stock.naver.com/ac?q=${encodeURIComponent(q)}&target=stock,etf,index`),
+    getEtfListNode(),
+  ]);
+
+  const items = [];
+  const seen = new Set();
+  const pushUnique = (code, name, market) => {
+    const k = String(code).toUpperCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    items.push({ code, name, market });
+  };
+
+  if (acRes.status === "fulfilled") {
+    const rawItems = acRes.value?.items || [];
+    for (const it of rawItems) {
+      if (!it || !it.code) continue;
+      const code = String(it.code).trim();
+      const upper = code.toUpperCase();
+      if (DOMESTIC_INDICES[upper]) {
+        pushUnique(upper, it.name || upper, "INDEX");
+        continue;
+      }
+      if (/^[0-9A-Za-z]{6}$/.test(code) && /\d/.test(code) && it.nationCode === "KOR") {
+        pushUnique(code, it.name || code, it.typeCode || it.typeName || "KRX");
+      }
+    }
+  }
+
+  if (etfRes.status === "fulfilled" && Array.isArray(etfRes.value)) {
+    const matched = etfRes.value
+      .filter((e) => {
+        const nl = e.name.toLowerCase();
+        return nl.includes(qLower) || nl.replace(/\s+/g, "").includes(qNoSpace) || e.code.toLowerCase() === qLower;
+      })
+      .sort((a, b) => b.marketCap - a.marketCap)
+      .slice(0, 30);
+    for (const e of matched) {
+      pushUnique(e.code, e.name, "ETF");
+    }
+  }
+  return items;
 }
 
 function buildTargetUrl(code, urlMode, apiNewPcUrl) {
@@ -644,6 +744,26 @@ ws.onmessage = (evt) => {
       if (data.param?.__cmd === "refreshNow") {
         const context = encodeContext(data);
         updateContext(context);
+        break;
+      }
+      if (data.param?.__cmd === "searchStocks") {
+        const reqState = { uuid: data.uuid, key: data.key, actionid: data.actionid };
+        searchStocksNode(data.param.query)
+          .then((items) => {
+            sendParamFromPlugin(reqState, {
+              __cmd: "searchResults",
+              requestId: data.param.requestId,
+              items,
+            });
+          })
+          .catch((err) => {
+            sendParamFromPlugin(reqState, {
+              __cmd: "searchResults",
+              requestId: data.param.requestId,
+              items: [],
+              error: err.message,
+            });
+          });
         break;
       }
       const { context } = ensureContext(data);

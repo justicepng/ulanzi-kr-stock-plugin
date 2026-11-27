@@ -51,6 +51,7 @@ const key = params.get("key") || "";
 
 let $ws = null;
 let $settings = Object.assign({}, DEFAULT_SETTINGS);
+const pendingSearches = new Map();
 
 const els = {
   searchInput: document.getElementById("searchInput"),
@@ -97,6 +98,31 @@ function syncUi() {
   els.showExchange.checked = $settings.showExchange !== false;
 }
 
+function searchViaPluginNode(query, timeoutMs = 4500) {
+  return new Promise((resolve) => {
+    if (!$ws || $ws.readyState !== WebSocket.OPEN) {
+      resolve([]);
+      return;
+    }
+    const requestId = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const timer = setTimeout(() => {
+      pendingSearches.delete(requestId);
+      resolve([]);
+    }, timeoutMs);
+    pendingSearches.set(requestId, (items) => {
+      clearTimeout(timer);
+      resolve(Array.isArray(items) ? items : []);
+    });
+    sendJson({
+      cmd: "paramfromplugin",
+      uuid,
+      key,
+      actionid,
+      param: { __cmd: "searchStocks", requestId, query },
+    });
+  });
+}
+
 async function performSearch() {
   const query = els.searchInput.value.trim();
   if (!query) {
@@ -112,40 +138,31 @@ async function performSearch() {
       p.keywords.some((k) => k.includes(qLower))
   );
 
-  let naverHits = [];
-  const mode = $settings.dataSource || "direct";
-  try {
-    let data = null;
-    if (mode === "relay") {
-      const res = await fetch(`${LOCAL_RELAY_BASE}/search?q=${encodeURIComponent(query)}`, { cache: "no-store" });
-      if (res.ok) data = await res.json();
-    } else if (mode === "auto") {
-      try {
-        const res = await fetch(`${LOCAL_RELAY_BASE}/search?q=${encodeURIComponent(query)}`, { cache: "no-store" });
-        if (res.ok) data = await res.json();
-      } catch {
-        const res = await fetch(`https://ac.stock.naver.com/ac?q=${encodeURIComponent(query)}&target=stock`, { cache: "no-store" });
-        if (res.ok) data = await res.json();
+  let nodeHits = await searchViaPluginNode(query, 4500);
+  if (nodeHits.length === 0) {
+    try {
+      const res = await fetch(
+        `https://ac.stock.naver.com/ac?q=${encodeURIComponent(query)}&target=stock,etf,index`,
+        { cache: "no-store" }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        nodeHits = (Array.isArray(data?.items) ? data.items : [])
+          .filter((it) => it.nationCode === "KOR" && it.code)
+          .map((it) => ({
+            code: it.code,
+            name: it.name,
+            market: it.typeCode || it.typeName || "KRX",
+          }));
       }
-    } else {
-      const res = await fetch(`https://ac.stock.naver.com/ac?q=${encodeURIComponent(query)}&target=stock`, { cache: "no-store" });
-      if (res.ok) data = await res.json();
+    } catch {
+      // ignore
     }
-    const rawItems = data?.result?.items || data?.items || [];
-    naverHits = (Array.isArray(rawItems) ? rawItems : [])
-      .filter((it) => it.nationCode === "KOR" && it.code)
-      .map((it) => ({
-        code: it.code,
-        name: it.name,
-        market: it.typeCode || it.typeName || "KRX",
-      }));
-  } catch {
-    // ignore network error and still show presets
   }
 
   const seen = new Set();
   const combined = [];
-  for (const item of [...presetHits, ...naverHits]) {
+  for (const item of [...presetHits, ...nodeHits]) {
     const k = item.code.toUpperCase();
     if (seen.has(k)) continue;
     seen.add(k);
@@ -264,6 +281,14 @@ function connect() {
       return;
     }
     if (data?.cmd === "paramfromapp" || data?.cmd === "paramfromplugin") {
+      if (data.param?.__cmd === "searchResults" && data.param.requestId) {
+        const cb = pendingSearches.get(data.param.requestId);
+        if (cb) {
+          pendingSearches.delete(data.param.requestId);
+          cb(data.param.items);
+        }
+        return;
+      }
       if (data.param && typeof data.param === "object" && !data.param.__cmd) {
         $settings = Object.assign({}, DEFAULT_SETTINGS, data.param);
         syncUi();
