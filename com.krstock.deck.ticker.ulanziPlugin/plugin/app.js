@@ -228,7 +228,7 @@ class SimpleWebSocket {
 
 // --- HTTPS Helper ---
 
-function fetchJson(url, timeoutMs = 5000) {
+function fetchJson(url, timeoutMs = 5000, encoding = "utf-8") {
   const client = String(url).startsWith("http://") ? http : https;
   return new Promise((resolve, reject) => {
     const req = client.get(
@@ -246,11 +246,12 @@ function fetchJson(url, timeoutMs = 5000) {
           reject(new Error(`HTTP ${res.statusCode}`));
           return;
         }
-        let body = "";
-        res.setEncoding("utf8");
-        res.on("data", (chunk) => (body += chunk));
+        const chunks = [];
+        res.on("data", (chunk) => chunks.push(chunk));
         res.on("end", () => {
           try {
+            const buf = Buffer.concat(chunks);
+            const body = new TextDecoder(encoding).decode(buf);
             resolve(JSON.parse(body));
           } catch (e) {
             reject(e);
@@ -427,7 +428,7 @@ async function getEtfListNode() {
   if (Array.isArray(cachedEtfList) && Date.now() - cachedEtfTime < 3600 * 1000) {
     return cachedEtfList;
   }
-  const data = await fetchJson("https://finance.naver.com/api/sise/etfItemList.nhn");
+  const data = await fetchJson("https://finance.naver.com/api/sise/etfItemList.nhn", 5000, "euc-kr");
   const raw = data?.result?.etfItemList || [];
   cachedEtfList = raw
     .filter((it) => it && it.itemcode && it.itemname)
